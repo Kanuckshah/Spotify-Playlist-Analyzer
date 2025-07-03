@@ -248,7 +248,7 @@
         .stat-number {
             font-size: 2rem;
             font-weight: 700;
-            color: #a6d71e;
+            color: #1ed760;
         }
 
         .stat-label {
@@ -431,7 +431,11 @@
 
         async function exchangeCodeForToken(code) {
             try {
-                const response = await fetch('https://accounts.spotify.com/api/token', {
+                // Use CORS proxy for token exchange as well
+                const proxyUrl = 'https://corsproxy.io/?';
+                const targetUrl = 'https://accounts.spotify.com/api/token';
+                
+                const response = await fetch(proxyUrl + encodeURIComponent(targetUrl), {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/x-www-form-urlencoded',
@@ -448,31 +452,62 @@
                     await loadPlaylists();
                     showAnalysisSection();
                 } else {
-                    throw new Error('Failed to get access token');
+                    console.error('Token response:', data);
+                    throw new Error(data.error_description || 'Failed to get access token');
                 }
             } catch (error) {
                 console.error('Error exchanging code for token:', error);
-                alert('Failed to connect to Spotify. Please try again.');
+                alert(`Failed to connect to Spotify: ${error.message}`);
             }
         }
 
         async function spotifyRequest(endpoint) {
-            const response = await fetch(`https://api.spotify.com/v1${endpoint}`, {
+            try {
+                // First try direct API call
+                const response = await fetch(`https://api.spotify.com/v1${endpoint}`, {
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`
+                    }
+                });
+                
+                if (!response.ok) {
+                    // If direct call fails, try with a CORS proxy
+                    if (response.status === 0 || response.status === 403) {
+                        return await spotifyRequestWithProxy(endpoint);
+                    }
+                    throw new Error(`Spotify API error: ${response.status} - ${response.statusText}`);
+                }
+                
+                return await response.json();
+            } catch (error) {
+                console.error('Direct API call failed, trying proxy:', error);
+                return await spotifyRequestWithProxy(endpoint);
+            }
+        }
+
+        async function spotifyRequestWithProxy(endpoint) {
+            // Use a CORS proxy service
+            const proxyUrl = 'https://corsproxy.io/?';
+            const targetUrl = `https://api.spotify.com/v1${endpoint}`;
+            
+            const response = await fetch(proxyUrl + encodeURIComponent(targetUrl), {
                 headers: {
                     'Authorization': `Bearer ${accessToken}`
                 }
             });
             
             if (!response.ok) {
-                throw new Error(`Spotify API error: ${response.status}`);
+                throw new Error(`Proxy Spotify API error: ${response.status} - ${response.statusText}`);
             }
             
-            return response.json();
+            return await response.json();
         }
 
         async function loadUserData() {
             try {
+                console.log('Loading user data...');
                 userData = await spotifyRequest('/me');
+                console.log('User data loaded:', userData.display_name);
                 
                 document.getElementById('userName').textContent = `Welcome, ${userData.display_name}!`;
                 document.getElementById('userFollowers').textContent = `${userData.followers.total} followers`;
@@ -485,18 +520,21 @@
                 document.getElementById('user-section').style.display = 'block';
             } catch (error) {
                 console.error('Error loading user data:', error);
+                alert(`Error loading user profile: ${error.message}`);
             }
         }
 
         async function loadPlaylists() {
             try {
+                console.log('Loading playlists with token:', accessToken ? 'Present' : 'Missing');
                 const data = await spotifyRequest('/me/playlists?limit=50');
-                playlists = data.items;
+                playlists = data.items || [];
                 
+                console.log('Loaded playlists:', playlists.length);
                 displayPlaylists();
             } catch (error) {
                 console.error('Error loading playlists:', error);
-                document.getElementById('playlists-container').innerHTML = '<p>Error loading playlists</p>';
+                document.getElementById('playlists-container').innerHTML = `<p>Error loading playlists: ${error.message}</p>`;
             }
         }
 
