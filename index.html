@@ -248,7 +248,7 @@
         .stat-number {
             font-size: 2rem;
             font-weight: 700;
-            color: #1ed760;
+            color: #a6d71e;
         }
 
         .stat-label {
@@ -329,10 +329,6 @@
                 <div style="text-align: center; margin-bottom: 20px;">
                     <h3>Connect Your Spotify Account</h3>
                     <p>Click below to securely connect your Spotify account and analyze your playlists</p>
-                    <div style="background: rgba(255, 193, 7, 0.1); border: 1px solid rgba(255, 193, 7, 0.3); border-radius: 10px; padding: 15px; margin: 15px 0; font-size: 0.9rem;">
-                        <strong>⚠️ Important:</strong> This app must be served from a web server (not opened as a file) to work with Spotify's API.
-                        <br>If you're getting errors, try hosting this on GitHub Pages, Netlify, or a local server.
-                    </div>
                 </div>
                 <button class="btn" onclick="connectSpotify()">🎵 Connect to Spotify</button>
             </div>
@@ -394,9 +390,8 @@
         let currentPlaylist = null;
 
         // Your Spotify Developer Credentials (hardcoded)
-        // Note: Only CLIENT_ID is needed for Implicit Grant Flow
         const CLIENT_ID = 'f0db03dd5bb847199db1ab07cc6dbc48';
-        // CLIENT_SECRET not needed for implicit flow (and shouldn't be exposed in frontend code)
+        const CLIENT_SECRET = '13ab71e2b13e40f286e4ec9a0fff8ba5';
         
         // Spotify API configuration
         const REDIRECT_URI = window.location.origin + window.location.pathname;
@@ -408,20 +403,6 @@
         });
 
         function checkUrlParams() {
-            const hash = window.location.hash.substring(1);
-            const params = new URLSearchParams(hash);
-            const token = params.get('access_token');
-            
-            if (token) {
-                accessToken = token;
-                loadUserData().then(() => loadPlaylists());
-                showAnalysisSection();
-                // Clean URL
-                window.history.replaceState({}, document.title, window.location.pathname);
-                return;
-            }
-            
-            // Fallback to authorization code flow
             const urlParams = new URLSearchParams(window.location.search);
             const code = urlParams.get('code');
             
@@ -434,17 +415,16 @@
 
         function connectSpotify() {
             if (!CLIENT_ID || CLIENT_ID === 'YOUR_SPOTIFY_CLIENT_ID_HERE') {
-                alert('Spotify Developer credentials not configured. Please add your Client ID to the code.');
+                alert('Spotify Developer credentials not configured. Please add your Client ID and Secret to the code.');
                 return;
             }
             
-            // Use Implicit Grant Flow (works in browsers without server)
+            // Redirect to Spotify authorization using your hardcoded credentials
             const authUrl = `https://accounts.spotify.com/authorize?` +
                 `client_id=${CLIENT_ID}&` +
-                `response_type=token&` +
+                `response_type=code&` +
                 `redirect_uri=${encodeURIComponent(REDIRECT_URI)}&` +
-                `scope=${encodeURIComponent(SCOPES)}&` +
-                `show_dialog=true`;
+                `scope=${encodeURIComponent(SCOPES)}`;
             
             window.location.href = authUrl;
         }
@@ -455,8 +435,9 @@
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/x-www-form-urlencoded',
+                        'Authorization': 'Basic ' + btoa(CLIENT_ID + ':' + CLIENT_SECRET)
                     },
-                    body: `grant_type=authorization_code&code=${code}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&client_id=${CLIENT_ID}&client_secret=${CLIENT_SECRET}`
+                    body: `grant_type=authorization_code&code=${code}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}`
                 });
 
                 const data = await response.json();
@@ -467,41 +448,31 @@
                     await loadPlaylists();
                     showAnalysisSection();
                 } else {
-                    console.error('Token response:', data);
-                    throw new Error(data.error_description || 'Failed to get access token');
+                    throw new Error('Failed to get access token');
                 }
             } catch (error) {
                 console.error('Error exchanging code for token:', error);
-                alert(`Failed to connect to Spotify: ${error.message}. This app needs to be served from a web server (not file://) to work properly.`);
+                alert('Failed to connect to Spotify. Please try again.');
             }
         }
 
         async function spotifyRequest(endpoint) {
-            try {
-                const response = await fetch(`https://api.spotify.com/v1${endpoint}`, {
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`,
-                        'Content-Type': 'application/json',
-                    }
-                });
-                
-                if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({}));
-                    throw new Error(`Spotify API error: ${response.status} - ${errorData.error?.message || response.statusText}`);
+            const response = await fetch(`https://api.spotify.com/v1${endpoint}`, {
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`
                 }
-                
-                return await response.json();
-            } catch (error) {
-                console.error('Spotify API request failed:', error);
-                throw error;
+            });
+            
+            if (!response.ok) {
+                throw new Error(`Spotify API error: ${response.status}`);
             }
+            
+            return response.json();
         }
 
         async function loadUserData() {
             try {
-                console.log('Loading user data...');
                 userData = await spotifyRequest('/me');
-                console.log('User data loaded:', userData.display_name);
                 
                 document.getElementById('userName').textContent = `Welcome, ${userData.display_name}!`;
                 document.getElementById('userFollowers').textContent = `${userData.followers.total} followers`;
@@ -514,21 +485,18 @@
                 document.getElementById('user-section').style.display = 'block';
             } catch (error) {
                 console.error('Error loading user data:', error);
-                alert(`Error loading user profile: ${error.message}`);
             }
         }
 
         async function loadPlaylists() {
             try {
-                console.log('Loading playlists with token:', accessToken ? 'Present' : 'Missing');
                 const data = await spotifyRequest('/me/playlists?limit=50');
-                playlists = data.items || [];
+                playlists = data.items;
                 
-                console.log('Loaded playlists:', playlists.length);
                 displayPlaylists();
             } catch (error) {
                 console.error('Error loading playlists:', error);
-                document.getElementById('playlists-container').innerHTML = `<p>Error loading playlists: ${error.message}</p>`;
+                document.getElementById('playlists-container').innerHTML = '<p>Error loading playlists</p>';
             }
         }
 
